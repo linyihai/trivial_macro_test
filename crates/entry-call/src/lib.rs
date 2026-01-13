@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 
@@ -31,7 +33,7 @@ pub fn entry_call_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
             panic!("Unsupported parameter type detected!");
         }
 
-        let params = call_params(&ty_arrs);
+        let params = call_params(&param_names, &ty_arrs);
         quote! {
             pub fn #entry_name #impl_generics (args: &mut Args, ctx: &mut TxContext) #fn_output {
                 let mut instance = bcs::from_bytes::<Self>(&args.next().expect("Failed to parse BCS")).unwrap();
@@ -72,7 +74,7 @@ pub fn entry_call_function(_attr: TokenStream, item: TokenStream) -> TokenStream
             panic!("Unsupported parameter type detected!");
         }
 
-        let params = call_params(&ty_arrs);
+        let params = call_params(&param_names, &ty_arrs);
         quote! {
             pub fn #entry_name #impl_generics (args: &mut Args, ctx: &mut TxContext) #fn_output {
                 #fn_name(#(#params),*)
@@ -97,7 +99,6 @@ fn literal_types(tys: &[Box<Type>]) -> Vec<TypeInfo> {
     for ty in tys {
         match ty.as_ref() {
             syn::Type::Path(type_path) => {
-                println!("{:?}", type_path);
                 if let Some(segment) = type_path.path.segments.last() {
                     ty_arrs.push(TypeInfo {
                         name: segment.ident.to_string(),
@@ -108,7 +109,6 @@ fn literal_types(tys: &[Box<Type>]) -> Vec<TypeInfo> {
                 }
             }
             syn::Type::Reference(type_ref) => {
-                println!("{:?}", type_ref);
                 if let syn::Type::Path(type_path) = &*type_ref.elem {
                     if let Some(segment) = type_path.path.segments.last() {
                         ty_arrs.push(TypeInfo {
@@ -126,38 +126,46 @@ fn literal_types(tys: &[Box<Type>]) -> Vec<TypeInfo> {
     ty_arrs
 }
 
-fn call_params(ty_arrs: &[TypeInfo]) -> Vec<proc_macro2::TokenStream> {
+fn call_params(
+    params_name: &[proc_macro2::Ident],
+    ty_arrs: &[TypeInfo],
+) -> Vec<proc_macro2::TokenStream> {
     let mut params = vec![];
-    for ty in ty_arrs {
+    for (param_name, ty) in params_name.iter().zip(ty_arrs.iter()) {
         let ty_token = &ty.token;
+        let hint = alloc::format!(
+            "Failed to parse parameter '{}' of type '{}'",
+            param_name,
+            ty.name
+        );
         let s = match ty.name.as_str() {
             "u64" => quote! {
-                fast_ascii_to_u64(&args.next_pure().expect("Failed to parse u64"))
+                fast_ascii_to_u64(&args.next_pure().expect(#hint))
             },
             "u32" => quote! {
-                fast_ascii_to_u64(&args.next_pure().expect("Failed to parse u32")) as u32
+                fast_ascii_to_u64(&args.next_pure().expect(#hint)) as u32
             },
             "bool" => quote! {
-                (fast_ascii_to_u64(&args.next_pure().expect("Failed to parse bool"))) != 0
+                (fast_ascii_to_u64(&args.next_pure().expect(#hint))) != 0
             },
             "TxContext" => quote! {
                 ctx
             },
             _ => match (ty.ref_inst, ty.mutable_ref) {
                 (true, true) => quote! {
-                    &mut bcs::from_bytes::<#ty_token>(&args.next().expect("Failed to parse BCS")).unwrap()
+                    &mut bcs::from_bytes::<#ty_token>(&args.next().expect(#hint)).unwrap()
                 },
                 (true, false) => quote! {
-                    &bcs::from_bytes::<#ty_token>(&args.next().expect("Failed to parse BCS")).unwrap()
+                    &bcs::from_bytes::<#ty_token>(&args.next().expect(#hint)).unwrap()
                 },
                 (false, true) => {
                     quote! {
-                        mut bcs::from_bytes::<#ty_token>(&args.next().expect("Failed to parse BCS")).unwrap()
+                        mut bcs::from_bytes::<#ty_token>(&args.next().expect(#hint)).unwrap()
                     }
                 }
                 (false, false) => {
                     quote! {
-                        bcs::from_bytes::<#ty_token>(&args.next().expect("Failed to parse BCS")).unwrap()
+                        bcs::from_bytes::<#ty_token>(&args.next().expect(#hint)).unwrap()
                     }
                 }
             },

@@ -31,5 +31,5 @@ fn main() {
         &mut ctx,
     );
 
-    print!("entry_foo_function returned: {}", a);
+    println!("entry_foo_function returned: {}", a);
 }
