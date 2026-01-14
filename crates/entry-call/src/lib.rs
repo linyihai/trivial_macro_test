@@ -3,7 +3,10 @@ extern crate alloc;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 
-use syn::{FnArg, ItemFn, Pat, PatType, Type, parse_macro_input};
+use syn::{
+    FnArg, GenericParam, ImplGenerics, ItemFn, Pat, PatType, Receiver, Type, TypeGenerics,
+    parse_macro_input,
+};
 
 #[proc_macro_attribute]
 pub fn entry_call_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -11,7 +14,7 @@ pub fn entry_call_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let sig = &input.sig;
     let fn_name = &sig.ident;
     let fn_output = &sig.output;
-    let (impl_generics, _ty_generics, _where_clause) = sig.generics.split_for_impl();
+    let (impl_generics, ty_generics, _where_clause) = sig.generics.split_for_impl();
 
     let (param_names, param_types): (Vec<_>, Vec<_>) = sig
         .inputs
@@ -25,6 +28,22 @@ pub fn entry_call_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .unzip();
 
+    let (is_mut_self, is_ref_self) = match sig.receiver() {
+        Some(Receiver {
+            mutability,
+            reference,
+            ..
+        }) => (mutability.is_some(), reference.is_some()),
+        _ => (false, false),
+    };
+
+    let mut_modifier = match (is_mut_self, is_ref_self) {
+        (false, false) => proc_macro2::TokenStream::new(),
+        (false, true) => quote! { & },
+        (true, true) => quote! { &mut },
+        (true, false) => quote! { mut },
+    };
+
     let entry_name = format_ident!("entry_{}", fn_name);
 
     let expanded = {
@@ -32,12 +51,14 @@ pub fn entry_call_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
         if ty_arrs.len() != param_names.len() {
             panic!("Unsupported parameter type detected!");
         }
-
         let params = call_params(&param_names, &ty_arrs);
+
+        let turbofish_ty = ty_generics.as_turbofish();
+
         quote! {
             pub fn #entry_name #impl_generics (args: &mut Args, ctx: &mut TxContext) #fn_output {
                 let mut instance = bcs::from_bytes::<Self>(&args.next().expect("Failed to parse BCS")).unwrap();
-                Self::#fn_name(&mut instance, #(#params),*)
+                Self::#fn_name #turbofish_ty (#mut_modifier instance, #(#params),*)
             }
 
             #input
@@ -53,7 +74,7 @@ pub fn entry_call_function(_attr: TokenStream, item: TokenStream) -> TokenStream
     let sig = &input.sig;
     let fn_name = &sig.ident;
     let fn_output = &sig.output;
-    let (impl_generics, _ty_generics, _where_clause) = sig.generics.split_for_impl();
+    let (impl_generics, ty_generics, _where_clause) = sig.generics.split_for_impl();
 
     let (param_names, param_types): (Vec<_>, Vec<_>) = sig
         .inputs
@@ -75,9 +96,11 @@ pub fn entry_call_function(_attr: TokenStream, item: TokenStream) -> TokenStream
         }
 
         let params = call_params(&param_names, &ty_arrs);
+        let turbofish_ty = ty_generics.as_turbofish();
+
         quote! {
             pub fn #entry_name #impl_generics (args: &mut Args, ctx: &mut TxContext) #fn_output {
-                #fn_name(#(#params),*)
+                #fn_name #turbofish_ty (#(#params),*)
             }
 
             #input

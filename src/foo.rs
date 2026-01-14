@@ -24,6 +24,16 @@ impl Foo {
     pub fn get_bcs(&self) -> Vec<u8> {
         bcs::to_bytes(self).unwrap()
     }
+
+    #[entry_call_method]
+    pub fn new_foo(self) -> Foo {
+        Foo {
+            counter: self.counter,
+        }
+    }
+
+    #[entry_call_method]
+    pub fn generic_method_no_arg<T: for<'a> serde::Deserialize<'a>>(self) {}
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,6 +54,9 @@ pub fn generic_struct<T: for<'a> serde::Deserialize<'a>>(_b: Bar<T>) {}
 pub fn generic_method<T: for<'a> serde::Deserialize<'a>>(_val: T) {
     // do nothing
 }
+
+#[entry_call_function]
+pub fn generic_method_no_arg<T: for<'a> serde::Deserialize<'a>>() {}
 
 #[entry_call_function]
 fn foo_function(int_a: u32, _bool: bool, _foo: Foo, _ctx: &mut TxContext) -> u32 {
