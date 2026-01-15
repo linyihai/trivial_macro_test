@@ -1,5 +1,7 @@
 extern crate alloc;
 
+use std::env::args;
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 
@@ -131,8 +133,8 @@ fn literal_types(tys: &[Box<Type>]) -> Vec<TypeInfo> {
                     });
                 }
             }
-            syn::Type::Reference(type_ref) => {
-                if let syn::Type::Path(type_path) = &*type_ref.elem {
+            syn::Type::Reference(type_ref) => match &*type_ref.elem {
+                syn::Type::Path(type_path) => {
                     if let Some(segment) = type_path.path.segments.last() {
                         ty_arrs.push(TypeInfo {
                             name: segment.ident.to_string(),
@@ -142,7 +144,21 @@ fn literal_types(tys: &[Box<Type>]) -> Vec<TypeInfo> {
                         });
                     }
                 }
-            }
+                syn::Type::Slice(type_slice) => match &*type_slice.elem {
+                    syn::Type::Path(type_path) => {
+                        if let Some(segment) = type_path.path.segments.last() {
+                            ty_arrs.push(TypeInfo {
+                                name: format!("&[{}]", segment.ident),
+                                token: quote! { &#type_slice },
+                                mutable_ref: type_ref.mutability.is_some(),
+                                ref_inst: true,
+                            });
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -174,6 +190,12 @@ fn call_params(
             "TxContext" => quote! {
                 ctx
             },
+            "&[u8]" => {
+                println!("parsing &[u8]");
+                quote! {
+                     args.next_pure().expect(#hint).as_slice()
+                }
+            }
             _ => match (ty.ref_inst, ty.mutable_ref) {
                 (true, true) => quote! {
                     &mut bcs::from_bytes::<#ty_token>(&args.next().expect(#hint)).unwrap()

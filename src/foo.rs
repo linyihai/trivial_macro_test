@@ -63,6 +63,9 @@ fn foo_function(int_a: u32, _bool: bool, _foo: Foo, _ctx: &mut TxContext) -> u32
     int_a
 }
 
+#[entry_call_function]
+fn ref_vec(_arr: &[u8]) {}
+
 pub struct Args {
     inner: Vec<Vec<u8>>,
 }
